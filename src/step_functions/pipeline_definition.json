@@ -1,0 +1,190 @@
+{
+  "Comment": "E-Commerce Analytics Pipeline \u00e2\u20ac\u201d Bronze \u00e2\u2020\u2019 Silver \u00e2\u2020\u2019 Gold",
+  "StartAt": "ValidateInput",
+  "States": {
+    "ValidateInput": {
+      "Type": "Pass",
+      "Comment": "Pass input through to next state",
+      "Next": "RunBronzeToSilver"
+    },
+    "RunBronzeToSilver": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "ecommerce-bronze-to-silver",
+        "Arguments": {
+          "--PROCESSING_DATE.$": "$.processing_date",
+          "--BRONZE_BUCKET": "ecommerce-pipeline-bronze",
+          "--SILVER_BUCKET": "ecommerce-pipeline-silver"
+        }
+      },
+      "ResultPath": "$.bronze_to_silver_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.AWSGlueException",
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error_info",
+          "Next": "HandleFailure"
+        }
+      ],
+      "Next": "RunSilverToGold"
+    },
+    "RunSilverToGold": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "ecommerce-silver-to-gold",
+        "Arguments": {
+          "--PROCESSING_DATE.$": "$.processing_date",
+          "--SILVER_BUCKET": "ecommerce-pipeline-silver",
+          "--GOLD_BUCKET": "ecommerce-pipeline-gold"
+        }
+      },
+      "ResultPath": "$.silver_to_gold_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.AWSGlueException",
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error_info",
+          "Next": "HandleFailure"
+        }
+      ],
+      "Next": "RunGlueCrawler"
+    },
+    "RunGlueCrawler": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Parameters": {
+        "Name": "ecommerce-gold-crawler"
+      },
+      "ResultPath": "$.crawler_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.CrawlerRunningException"
+          ],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 5,
+          "BackoffRate": 1.5
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error_info",
+          "Next": "HandleFailure"
+        }
+      ],
+      "Next": "WaitForCrawler"
+    },
+    "WaitForCrawler": {
+      "Type": "Wait",
+      "Seconds": 60,
+      "Next": "CheckCrawlerStatus"
+    },
+    "CheckCrawlerStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler",
+      "Parameters": {
+        "Name": "ecommerce-gold-crawler"
+      },
+      "ResultPath": "$.crawler_status",
+      "Next": "IsCrawlerDone"
+    },
+    "IsCrawlerDone": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.crawler_status.Crawler.State",
+          "StringEquals": "READY",
+          "Next": "PublishSuccessMetric"
+        },
+        {
+          "Variable": "$.crawler_status.Crawler.LastCrawl.Status",
+          "StringEquals": "FAILED",
+          "Next": "HandleFailure"
+        }
+      ],
+      "Default": "WaitForCrawler"
+    },
+    "PublishSuccessMetric": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
+      "Parameters": {
+        "Namespace": "EcommercePipeline",
+        "MetricData": [
+          {
+            "MetricName": "PipelineSuccess",
+            "Dimensions": [
+              {
+                "Name": "PipelineName",
+                "Value": "ecommerce-analytics"
+              }
+            ],
+            "Value": 1,
+            "Unit": "Count"
+          }
+        ]
+      },
+      "ResultPath": null,
+      "Next": "PipelineSucceeded"
+    },
+    "PipelineSucceeded": {
+      "Type": "Succeed",
+      "Comment": "All stages completed successfully"
+    },
+    "HandleFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
+      "Parameters": {
+        "Namespace": "EcommercePipeline",
+        "MetricData": [
+          {
+            "MetricName": "PipelineFailure",
+            "Dimensions": [
+              {
+                "Name": "PipelineName",
+                "Value": "ecommerce-analytics"
+              }
+            ],
+            "Value": 1,
+            "Unit": "Count"
+          }
+        ]
+      },
+      "ResultPath": null,
+      "Next": "PipelineFailed"
+    },
+    "PipelineFailed": {
+      "Type": "Fail",
+      "Error": "PipelineError",
+      "Cause": "One or more pipeline stages failed. Check CloudWatch logs."
+    }
+  }
+}

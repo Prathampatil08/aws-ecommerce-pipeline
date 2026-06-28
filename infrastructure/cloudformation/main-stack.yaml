@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: E-Commerce Data Pipeline (Lambda-based ETL)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ecommerce-pipeline
+  ScriptsBucket:
+    Type: String
+
+Resources:
+
+  BronzeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-bronze-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  SilverBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-silver-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  GoldBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-gold-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  AthenaResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${ProjectName}-athena-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["s3:*"]
+                Resource: ["*"]
+              - Effect: Allow
+                Action: ["states:StartExecution"]
+                Resource: ["*"]
+
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-sfn-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeLambda
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["lambda:InvokeFunction"]
+                Resource: ["*"]
+
+  BronzeToSilverLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-bronze-to-silver"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Code:
+        S3Bucket: !Ref ScriptsBucket
+        S3Key: lambda/bronze_to_silver.zip
+      Environment:
+        Variables:
+          SILVER_BUCKET: !Ref SilverBucket
+
+  SilverToGoldLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-silver-to-gold"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Code:
+        S3Bucket: !Ref ScriptsBucket
+        S3Key: lambda/silver_to_gold.zip
+      Environment:
+        Variables:
+          SILVER_BUCKET: !Ref SilverBucket
+          GOLD_BUCKET: !Ref GoldBucket
+
+  PipelineStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${ProjectName}-pipeline"
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "E-Commerce ETL Pipeline",
+          "StartAt": "BronzeToSilver",
+          "States": {
+            "BronzeToSilver": {
+              "Type": "Task",
+              "Resource": "${BronzeToSilverLambda.Arn}",
+              "Parameters": {
+                "bucket.$": "$.bucket",
+                "key.$": "$.key",
+                "table.$": "$.table",
+                "date.$": "$.date"
+              },
+              "ResultPath": "$.bronze_result",
+              "Next": "SilverToGold",
+              "Retry": [{"ErrorEquals": ["States.ALL"], "MaxAttempts": 2}]
+            },
+            "SilverToGold": {
+              "Type": "Task",
+              "Resource": "${SilverToGoldLambda.Arn}",
+              "Parameters": {
+                "date.$": "$.date"
+              },
+              "ResultPath": "$.gold_result",
+              "Next": "Done",
+              "Retry": [{"ErrorEquals": ["States.ALL"], "MaxAttempts": 2}]
+            },
+            "Done": {
+              "Type": "Succeed"
+            }
+          }
+        }
+
+  AthenaWorkgroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: !Sub "${ProjectName}-workgroup"
+      State: ENABLED
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub "s3://${AthenaResultsBucket}/results/"
+
+Outputs:
+  BronzeBucket:
+    Value: !Ref BronzeBucket
+  SilverBucket:
+    Value: !Ref SilverBucket
+  GoldBucket:
+    Value: !Ref GoldBucket
+  StateMachineArn:
+    Value: !Ref PipelineStateMachine

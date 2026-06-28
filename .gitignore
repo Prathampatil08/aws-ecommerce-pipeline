@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.env
+*.env.local
+venv/
+.venv/
+env/
+
+# Data files (don't commit raw data to git)
+data/
+*.csv
+*.parquet
+*.json.gz
+
+# AWS
+.aws/
+*.tfstate
+*.tfstate.backup
+
+# Dist artifacts
+dist/
+*.zip
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
