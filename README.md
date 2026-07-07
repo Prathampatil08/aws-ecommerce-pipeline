@@ -154,13 +154,37 @@ aws-ecommerce-pipeline/
 
 ---
 
-## 📈 Sample Business Metrics (Gold Layer)
+## 📈 Actual Pipeline Results
 
-- **Daily Revenue Summary** – revenue, orders, AOV per day
-- **Customer Segments** – RFM analysis (Recency, Frequency, Monetary)
-- **Product Performance** – top sellers, low stock alerts
-- **Geographic Revenue** – revenue by country
-- **Order Funnel** – conversion rates by status
+| Metric | Value |
+|--------|-------|
+| Total Orders Processed | 4,197 |
+| Total Revenue Generated | $7,568,959.45 |
+| Average Order Value | $1,803.42 |
+| Countries Tracked | 10 |
+| Channels | web, mobile, api |
+| Top Country | UK ($916,402) |
+| Top Channel | API ($2,604,244) |
+| Pipeline Status | ✅ COMPLETE |
+
+### Revenue by Country
+| Country | Orders | Revenue |
+|---------|--------|---------|
+| UK | 485 | $916,402 |
+| MX | 489 | $905,767 |
+| AU | 485 | $848,475 |
+| DE | 453 | $836,179 |
+| JP | 461 | $813,909 |
+
+### Order Status Funnel
+| Status | Count | % |
+|--------|-------|---|
+| Returned | 877 | 17.5% |
+| Pending | 853 | 17.1% |
+| Delivered | 835 | 16.7% |
+| Shipped | 825 | 16.5% |
+| Processing | 807 | 16.1% |
+| Cancelled | 803 | 16.1% |
 
 ---
 
@@ -201,3 +225,8 @@ pytest tests/ -v
 ## 📄 License
 
 MIT — free to use for portfolio, learning, or production.
+
+👨‍💻 Author
+Pratham Patil — Data Engineer
+
+GitHub: @Prathampatil08
